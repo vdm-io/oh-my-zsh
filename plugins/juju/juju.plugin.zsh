@@ -1,27 +1,25 @@
 # ---------------------------------------------------------- #
 # Aliases and functions for juju (https://juju.is)           #
-# ---------------------------------------------------------- #
-
-# Load TAB completions
-# You need juju's bash completion script installed. By default bash-completion's
-# location will be used (i.e. pkg-config --variable=completionsdir bash-completion).
-completion_file="$(pkg-config --variable=completionsdir bash-completion 2>/dev/null)/juju" || \
-  completion_file="/usr/share/bash-completion/completions/juju"
-[[ -f "$completion_file" ]] && source "$completion_file"
-unset completion_file
-
-# ---------------------------------------------------------- #
-# Aliases (in alphabetic order)                              #
 #                                                            #
 # Generally,                                                 #
 #   - `!` means --force --no-wait -y                         #
 #   - `ds` suffix means --destroy-storage                    #
+#   - `jsh` prefix means juju show-*                         #
 # ---------------------------------------------------------- #
+alias j="juju"
 alias jam="juju add-model --config logging-config=\"<root>=WARNING; unit=DEBUG\"\
  --config update-status-hook-interval=\"60m\""
 alias jb='juju bootstrap'
+alias jbng='juju bootstrap --no-gui'
+alias jbl='juju bootstrap localhost'
+alias jblng='juju bootstrap --no-gui localhost'
 alias jbm='juju bootstrap microk8s'
+alias jbmng='juju bootstrap --no-gui microk8s'
 alias jc='juju config'
+alias jcld='juju clouds'
+alias jclda='juju clouds --all'
+alias jctl='juju controllers'
+alias jctlr='juju controllers --refresh'
 alias jdc='juju destroy-controller --destroy-all-models'
 alias 'jdc!'='juju destroy-controller --destroy-all-models --force --no-wait -y'
 alias jdcds='juju destroy-controller --destroy-all-models --destroy-storage'
@@ -37,6 +35,7 @@ alias jdlr='juju debug-log --ms --replay'
 alias jcon='juju consume'
 alias jeb='juju export-bundle'
 alias jex='juju expose'
+alias junex='juju unexpose'
 alias jh='juju help'
 alias jkc='juju kill-controller -y -t 0'
 alias jm='juju models'
@@ -56,13 +55,16 @@ alias jrp='juju refresh --path'
 alias jrs='juju remove-storage'
 alias 'jrs!'='juju remove-storage --force'
 alias jsa='juju scale-application'
-alias jsh='juju ssh'
-alias jshc='juju ssh --container'
+alias jsha='juju show-application'
+alias jshc='juju show-controller'
 alias jshm='juju show-model'
-alias jssl='juju show-status-log'
+alias jshsl='juju show-status-log'
+alias jshu='juju show-unit'
+alias jssh='juju ssh'
+alias jsshc='juju ssh --container'
 alias jstj='juju status --format=json'
-alias jst='juju status --relations --storage --color'
-alias jsu='juju show-unit'
+alias jst='juju status --relations --color'
+alias jsts='juju status --relations --storage --color'
 alias jsw='juju switch'
 
 # ---------------------------------------------------------- #
@@ -85,7 +87,7 @@ jaddr() {
   elif [[ $# -eq 2 ]]; then
     # Get unit address
     juju status "$1/$2" --format=json \
-      | jq -r ".applications.\"$1\".units.\"$1/$2\".address"
+      | jq -r ".applications.\"$1\".units.\"$1/$2\" | .address // .\"public-address\""
   else
     echo "Invalid number of arguments."
     echo "Usage:   jaddr <app-name> [<unit-number>]"
@@ -93,6 +95,38 @@ jaddr() {
     echo "Example: jaddr karma 0"
     return 1
   fi
+}
+
+# Destroy all controllers
+jclean() {
+  if (( ! ${+commands[jq]} )); then
+    echo "jq is required but could not be found." >&2
+    return 1
+  fi
+
+  local controllers=$(juju controllers --format=json | jq -r '.controllers | keys[]' 2>/dev/null)
+  if [[ -z "$controllers" ]]; then
+    echo "No controllers registered"
+    return 0
+  fi
+
+  echo "This will forcefully destroy all storages, models and controllers."
+  echo "Controllers to be destroyed:"
+  echo "$controllers"
+
+  if ! read -q '?Are you sure (y/n)? '; then
+    echo
+    echo "Aborted."
+    return 0
+  fi
+
+  echo
+  local controller
+  for controller in ${=controllers}; do
+    timeout 2m juju destroy-controller --destroy-all-models --destroy-storage --force --no-wait -y $controller
+    timeout 2m juju kill-controller -y -t 0 $controller 2>/dev/null
+    timeout 10s juju unregister $controller 2>/dev/null
+  done
 }
 
 # Display app and unit relation data
@@ -119,9 +153,46 @@ jreld() {
   juju run "relation-get -r $relid - $2" --unit $2/$3
 }
 
-# Watch juju status, with optional interval (default: 5 sec)
+# Return Juju current controller
+jcontroller() {
+  local file="${JUJU_DATA:-$HOME/.local/share/juju}/controllers.yaml"
+  [[ -f "$file" ]] || return 1
+
+  local controller="$(awk '/current-controller/ {print $2}' "$file")"
+  [[ -z "$controller" ]] && return 1
+
+  echo $controller
+  return 0
+}
+
+# Return Juju current model
+jmodel() {
+  local file="${JUJU_DATA:-$HOME/.local/share/juju}/models.yaml"
+  [[ -f "$file" ]] || return 1
+
+  local yqbin="$(whereis yq | awk '{print $2}')"
+
+  if [[ -z "$yqbin" ]]; then
+    echo "--"
+    return 1
+  fi
+
+  local controller="$(jcontroller)"
+  local model="$(yq e ".controllers.[\"${controller}\"].current-model" < "${file}" | cut -d/ -f2)"
+
+  if [[ -z "$model" || $model == "null" ]]; then
+    echo "--"
+    return 1
+  fi
+
+  echo $model
+  return 0
+}
+
+# Watch juju status, with optional interval (default: 1 sec)
 wjst() {
-  local interval="${1:-5}"
+  command -v juju >/dev/null 2>&1 || return 1
+  local interval="${1:-1}"
   shift $(( $# > 0 ))
-  watch -n "$interval" --color juju status --relations --storage --color "$@"
+  watch -n "$interval" --color juju status --relations --color "$@"
 }

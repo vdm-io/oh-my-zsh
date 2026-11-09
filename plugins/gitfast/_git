@@ -2,23 +2,11 @@
 
 # zsh completion wrapper for git
 #
-# Copyright (c) 2012-2020 Felipe Contreras <felipe.contreras@gmail.com>
+# Copyright (c) 2012-2024 Felipe Contreras <felipe.contreras@gmail.com>
 #
-# The recommended way to install this script is to make a copy of it as a
-# file named '_git' inside any directory in your fpath.
+# The recommended way to use this script is to prepend its location to your $fpath:
 #
-# For example, create a directory '~/.zsh/', copy this file to '~/.zsh/_git',
-# and then add the following to your ~/.zshrc file:
-#
-#  fpath=(~/.zsh $fpath)
-#
-# You need git's bash completion script installed. By default bash-completion's
-# location will be used (e.g. pkg-config --variable=completionsdir bash-completion).
-#
-# If your bash completion script is somewhere else, you can specify the
-# location in your ~/.zshrc:
-#
-#  zstyle ':completion:*:*:git:*' script ~/.git-completion.bash
+#  fpath=($git_completion_srcdir $fpath)
 #
 
 zstyle -T ':completion:*:*:git:*' tag-order && \
@@ -33,8 +21,9 @@ if [ -z "$script" ]; then
 		bash_completion='/usr/share/bash-completion/completions/'
 
 	locations=(
-		"$(dirname ${funcsourcetrace[1]%:*})"/git-completion.bash
+		"${${funcsourcetrace[1]%:*}:A:h}"/git-completion.bash
 		"$HOME/.local/share/bash-completion/completions/git"
+		'/usr/local/share/bash-completion/completions/git'
 		"$bash_completion/git"
 		'/etc/bash_completion.d/git' # old debian
 		)
@@ -51,10 +40,17 @@ functions[complete]="$old_complete"
 
 __gitcompadd ()
 {
-	compadd -Q -p "${2-}" -S "${3- }" ${@[4,-1]} -- ${=1} && _ret=0
+	compadd -p "${2-}" -S "${3- }" -q -- ${=1} && _ret=0
 }
 
 __gitcomp ()
+{
+	emulate -L zsh
+
+	IFS=$' \t\n' __gitcompadd "$1" "${2-}" "${4- }"
+}
+
+__gitcomp_opts ()
 {
 	emulate -L zsh
 
@@ -70,7 +66,7 @@ __gitcomp ()
 			break
 		fi
 
-		if [[ -z "${4-}" ]]; then
+		if [[ -z "${4+set}" ]]; then
 			case $c in
 			*=) c="${c%=}"; sfx="=" ;;
 			*.) sfx="" ;;
@@ -79,7 +75,7 @@ __gitcomp ()
 		else
 			sfx="$4"
 		fi
-		__gitcompadd "$c" "${2-}" "$sfx" -q
+		__gitcompadd "$c" "${2-}" "$sfx"
 	done
 }
 
@@ -87,7 +83,10 @@ __gitcomp_nl ()
 {
 	emulate -L zsh
 
-	IFS=$'\n' __gitcompadd "$1" "${2-}" "${4- }"
+	# words that don't end up in space
+	compadd -p "${2-}" -S "${4- }" -q -- ${${(f)1}:#*\ } && _ret=0
+	# words that end in space
+	compadd -p "${2-}" -S " ${4- }" -q -- ${${(M)${(f)1}:#*\ }% } && _ret=0
 }
 
 __gitcomp_file ()
@@ -105,21 +104,6 @@ __gitcomp_direct ()
 __gitcomp_file_direct ()
 {
 	__gitcomp_file "$1" ""
-}
-
-__gitcomp_nl_append ()
-{
-	__gitcomp_nl "$@"
-}
-
-__gitcomp_direct_append ()
-{
-	__gitcomp_direct "$@"
-}
-
-_git_zsh ()
-{
-	__gitcomp "v1.2"
 }
 
 __git_complete_command ()
@@ -206,9 +190,7 @@ __git_zsh_main ()
 {
 	local curcontext="$curcontext" state state_descr line
 	typeset -A opt_args
-	local -a orig_words __git_C_args
-
-	orig_words=( ${words[@]} )
+	local -a __git_C_args
 
 	_arguments -C \
 		'(-p --paginate -P --no-pager)'{-p,--paginate}'[pipe all output into ''less'']' \
@@ -245,7 +227,7 @@ __git_zsh_main ()
 		emulate ksh -c __git_complete_config_variable_name_and_value
 		;;
 	(arg)
-		local command="${words[1]}" __git_dir
+		local command="${words[1]}" __git_dir __git_cmd_idx=1
 
 		if (( $+opt_args[--bare] )); then
 			__git_dir='.'
@@ -259,7 +241,7 @@ __git_zsh_main ()
 
 		(( $+opt_args[--help] )) && command='help'
 
-		words=( ${orig_words[@]} )
+		words=( git ${words[@]} )
 
 		__git_zsh_bash_func $command
 		;;
@@ -269,7 +251,7 @@ __git_zsh_main ()
 _git ()
 {
 	local _ret=1
-	local cur cword prev
+	local cur cword prev __git_cmd_idx=0
 
 	cur=${words[CURRENT]}
 	prev=${words[CURRENT-1]}

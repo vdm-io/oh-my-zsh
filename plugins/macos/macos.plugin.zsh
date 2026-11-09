@@ -1,5 +1,17 @@
-# Open the current directory in a Finder window
-alias ofd='open_command $PWD'
+# Handle $0 according to the standard:
+# https://zdharma-continuum.github.io/Zsh-100-Commits-Club/Zsh-Plugin-Standard.html
+0="${${ZERO:-${0:#$ZSH_ARGZERO}}:-${(%):-%N}}"
+0="${${(M)0:#/*}:-$PWD/$0}"
+
+# Open in Finder the directories passed as arguments, or the current directory if
+# no directories are passed
+function ofd {
+  if (( ! $# )); then
+    open_command $PWD
+  else
+    open_command $@
+  fi
+}
 
 # Show/hide hidden files in the Finder
 alias showfiles="defaults write com.apple.finder AppleShowAllFiles -bool true && killall Finder"
@@ -67,6 +79,19 @@ EOF
         key code 36  #(presses enter)
       end tell
 EOF
+
+  elif [[ "$the_app" == 'Tabby' ]]; then
+    osascript >/dev/null <<EOF
+      tell application "System Events"
+        tell process "Tabby" to keystroke "t" using command down
+      end tell
+EOF
+  elif [[ "$the_app" == 'ghostty' ]]; then
+    osascript >/dev/null <<EOF
+      tell application "System Events"
+        tell process "Ghostty" to keystroke "t" using command down
+      end tell
+EOF
   else
     echo "$0: unsupported terminal app: $the_app" >&2
     return 1
@@ -114,6 +139,18 @@ EOF
       delay 1
       keystroke "${command} \n"
     end tell
+EOF
+  elif [[ "$the_app" == 'Tabby' ]]; then
+    osascript >/dev/null <<EOF
+      tell application "System Events"
+        tell process "Tabby" to keystroke "D" using command down
+      end tell
+EOF
+  elif [[ "$the_app" == 'ghostty' ]]; then
+    osascript >/dev/null <<EOF
+      tell application "System Events"
+        tell process "Ghostty" to keystroke "D" using command down
+      end tell
 EOF
   else
     echo "$0: unsupported terminal app: $the_app" >&2
@@ -163,6 +200,18 @@ EOF
       delay 1
       keystroke "${command} \n"
     end tell
+EOF
+  elif [[ "$the_app" == 'Tabby' ]]; then
+    osascript >/dev/null <<EOF
+      tell application "System Events"
+        tell process "Tabby" to keystroke "d" using command down
+      end tell
+EOF
+  elif [[ "$the_app" == 'ghostty' ]]; then
+    osascript >/dev/null <<EOF
+      tell application "System Events"
+        tell process "Ghostty" to keystroke "d" using command down
+      end tell
 EOF
   else
     echo "$0: unsupported terminal app: $the_app" >&2
@@ -219,8 +268,12 @@ function quick-look() {
 }
 
 function man-preview() {
-  # Don't let Preview.app steal focus if the man page doesn't exist
-  man -w "$@" &>/dev/null && man -t "$@" | open -f -a Preview || man "$@"
+  [[ $# -eq 0 ]] && >&2 echo "Usage: $0 command1 [command2 ...]" && return 1
+
+  local page
+  for page in "${(@f)"$(command man -w $@)"}"; do
+    command mandoc -Tpdf $page | open -f -a Preview
+  done
 }
 compdef _man man-preview
 

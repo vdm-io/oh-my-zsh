@@ -8,7 +8,7 @@ fi
 
 # If method undefined, find the first one that is installed
 if [[ -z "$JSONTOOLS_METHOD" ]]; then
-  for JSONTOOLS_METHOD in node python ruby; do
+  for JSONTOOLS_METHOD in node python3 ruby; do
     # If method found, break out of loop
     (( $+commands[$JSONTOOLS_METHOD] )) && break
     # Otherwise unset the variable
@@ -22,14 +22,17 @@ fi
 # Define json tools for each method
 case "$JSONTOOLS_METHOD" in
   node)
-    # node doesn't make it easy to deal with stdin, so we pass it as an argument with xargs -0
+    # Read stdin directly so input is not limited by command-line argument size.
     function pp_json() {
-      xargs -0 node -e 'console.log(JSON.stringify(JSON.parse(process.argv[1]), null, 4));'
+      node -e '
+        const input = require("fs").readFileSync(0, "utf8");
+        console.log(JSON.stringify(JSON.parse(input), null, 4));
+      '
     }
     function is_json() {
-      xargs -0 node -e '
+      node -e '
         try {
-          json = JSON.parse(process.argv[1]);
+          JSON.parse(require("fs").readFileSync(0, "utf8"));
           console.log("true");
           process.exit(0);
         } catch (e) {
@@ -39,18 +42,22 @@ case "$JSONTOOLS_METHOD" in
       '
     }
     function urlencode_json() {
-      xargs -0 node -e "console.log(encodeURIComponent(process.argv[1]))"
+      node -e '
+        console.log(encodeURIComponent(require("fs").readFileSync(0, "utf8")));
+      '
     }
     function urldecode_json() {
-      xargs -0 node -e "console.log(decodeURIComponent(process.argv[1]))"
+      node -e '
+        console.log(decodeURIComponent(require("fs").readFileSync(0, "utf8")));
+      '
     }
   ;;
-  python)
+  python3)
     function pp_json() {
-      python -c 'import sys; del sys.path[0]; import runpy; runpy._run_module_as_main("json.tool")'
+      python3 -c 'import sys; del sys.path[0]; import runpy; runpy._run_module_as_main("json.tool")'
     }
     function is_json() {
-      python -c '
+      python3 -c '
 import sys; del sys.path[0];
 import json
 try:
@@ -61,14 +68,14 @@ except ValueError:
       '
     }
     function urlencode_json() {
-      python -c '
+      python3 -c '
 import sys; del sys.path[0];
 from urllib.parse import quote_plus
 print(quote_plus(sys.stdin.read()))
       '
     }
     function urldecode_json() {
-      python -c '
+      python3 -c '
 import sys; del sys.path[0];
 from urllib.parse import unquote_plus
 print(unquote_plus(sys.stdin.read()))

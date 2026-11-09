@@ -1,23 +1,25 @@
-if (( $+commands[fnm] )); then
-  # remove old generated completion file
-  command rm -f "${0:A:h}/_fnm"
-
-  ver="$(fnm --version)"
-  ver_file="$ZSH_CACHE_DIR/fnm_version"
-  comp_file="$ZSH_CACHE_DIR/completions/_fnm"
-
-  mkdir -p "${comp_file:h}"
-  (( ${fpath[(Ie)${comp_file:h}]} )) || fpath=("${comp_file:h}" $fpath)
-
-  if [[ ! -f "$comp_file" || ! -f "$ver_file" || "$ver" != "$(< "$ver_file")" ]]; then
-    fnm completions --shell=zsh >| "$comp_file"
-    echo "$ver" >| "$ver_file"
-  fi
-
-  declare -A _comps
-  autoload -Uz _fnm
-  _comps[fnm]=_fnm
-
-  unset ver ver_file comp_file
+if (( ! $+commands[fnm] )); then
+  return
 fi
 
+# If the completion file doesn't exist yet, we need to autoload it and
+# bind it to `fnm`. Otherwise, compinit will have already done that.
+if [[ ! -f "$ZSH_CACHE_DIR/completions/_fnm" ]]; then
+  typeset -g -A _comps
+  autoload -Uz _fnm
+  _comps[fnm]=_fnm
+fi
+
+zmodload -F zsh/files b:zf_mv
+() {
+  local TMPPREFIX="$ZSH_CACHE_DIR/completions/._fnm"
+  zf_mv -f -- =( fnm completions --shell=zsh ) "$ZSH_CACHE_DIR/completions/_fnm"
+} &|
+
+if zstyle -t ':omz:plugins:fnm' autostart; then
+  local -a fnm_env_cmd
+  if zstyle -T ':omz:plugins:fnm' use-on-cd; then
+    fnm_env_cmd+=("--use-on-cd")
+  fi
+  eval "$(fnm env --shell=zsh $fnm_env_cmd)"
+fi
